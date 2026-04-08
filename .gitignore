@@ -1,0 +1,46 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Database
+*.db
+
+# Uploads & outputs
+backend/uploads/*
+backend/outputs/*
+!backend/uploads/.gitkeep
+!backend/outputs/.gitkeep
+
+# Training data
+backend/training/dataset/authentic/**/*.jpg
+backend/training/dataset/authentic/**/*.png
+backend/training/dataset/forged/**/*.jpg
+backend/training/dataset/forged/**/*.png
+
+# Model files
+backend/ml_models/*.pth
+backend/ml_models/*.pkl
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env

@@ -1,0 +1,40 @@
+{
+  "document_type": "sppu_marksheet",
+  "description": "Savitribai Phule Pune University Academic Marksheet",
+  "fields": {
+    "prn": {"type": "string", "pattern": "^\\d{11}$", "required": true},
+    "student_name": {"type": "string", "required": true},
+    "exam_seat_number": {"type": "string", "required": true},
+    "month_year": {"type": "string", "required": true},
+    "university": {"type": "string", "expected": "SPPU"},
+    "course": {"type": "string", "required": true},
+    "semester": {"type": "integer", "min": 1, "max": 8, "required": true},
+    "subjects": {
+      "type": "array",
+      "required": true,
+      "items": {
+        "subject_code": {"type": "string"},
+        "subject_name": {"type": "string"},
+        "credits": {"type": "integer", "min": 1, "max": 6},
+        "internal_marks": {"type": "integer", "min": 0, "max": 50},
+        "external_marks": {"type": "integer", "min": 0, "max": 100},
+        "total_marks": {"type": "integer", "min": 0, "max": 150},
+        "grade": {"type": "string", "enum": ["O", "A+", "A", "B+", "B", "C", "F"]},
+        "grade_points": {"type": "float", "min": 0, "max": 10}
+      }
+    },
+    "total_credits": {"type": "integer", "required": true},
+    "sgpa": {"type": "float", "min": 0, "max": 10, "required": true},
+    "result": {"type": "string", "enum": ["PASS", "FAIL"], "required": true}
+  },
+  "grading_scale": {
+    "O":  {"min": 91, "max": 100, "grade_points": 10},
+    "A+": {"min": 81, "max": 90,  "grade_points": 9},
+    "A":  {"min": 71, "max": 80,  "grade_points": 8},
+    "B+": {"min": 61, "max": 70,  "grade_points": 7},
+    "B":  {"min": 51, "max": 60,  "grade_points": 6},
+    "C":  {"min": 41, "max": 50,  "grade_points": 5},
+    "F":  {"min": 0,  "max": 40,  "grade_points": 0}
+  },
+  "keywords": ["Savitribai Phule", "SPPU", "SGPA", "PRN", "Grade Points", "Semester"]
+}

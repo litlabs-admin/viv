@@ -1,0 +1,24 @@
+{
+  "document_type": "pan_card",
+  "description": "Permanent Account Number Card (Income Tax Department, India)",
+  "fields": {
+    "pan_number": {"type": "string", "pattern": "^[A-Z]{5}[0-9]{4}[A-Z]$", "required": true},
+    "name": {"type": "string", "required": true},
+    "fathers_name": {"type": "string", "required": true},
+    "dob": {"type": "string", "format": "DD/MM/YYYY", "required": true},
+    "signature_present": {"type": "boolean", "required": false}
+  },
+  "pan_4th_char_entity_type": {
+    "P": "Person",
+    "C": "Company",
+    "H": "Hindu Undivided Family",
+    "F": "Firm",
+    "A": "Association of Persons",
+    "T": "Trust",
+    "B": "Body of Individuals",
+    "L": "Local Authority",
+    "J": "Artificial Juridical Person",
+    "G": "Government"
+  },
+  "keywords": ["PERMANENT ACCOUNT NUMBER", "INCOME TAX", "PAN", "GOVT. OF INDIA"]
+}

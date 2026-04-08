@@ -1,0 +1,21 @@
+{
+  "document_type": "experience_certificate",
+  "description": "Employment/Experience Certificate from a company",
+  "fields": {
+    "employee_name": {"type": "string", "required": true},
+    "employee_id": {"type": "string", "required": false},
+    "designation": {"type": "string", "required": true},
+    "department": {"type": "string", "required": false},
+    "company_name": {"type": "string", "required": true},
+    "date_of_joining": {"type": "string", "format": "DD/MM/YYYY", "required": true},
+    "date_of_relieving": {"type": "string", "format": "DD/MM/YYYY", "required": true},
+    "duration": {"type": "string", "required": false},
+    "certifying_authority_name": {"type": "string", "required": false},
+    "certifying_authority_designation": {"type": "string", "required": false},
+    "issue_date": {"type": "string", "required": false},
+    "company_letterhead_present": {"type": "boolean", "required": false},
+    "seal_present": {"type": "boolean", "required": false},
+    "signature_present": {"type": "boolean", "required": false}
+  },
+  "keywords": ["experience", "certificate", "employment", "relieving", "joining", "hereby certify"]
+}

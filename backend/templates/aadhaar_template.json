@@ -1,0 +1,14 @@
+{
+  "document_type": "aadhaar_card",
+  "description": "Government of India Aadhaar Card (UIDAI)",
+  "fields": {
+    "aadhaar_number": {"type": "string", "pattern": "^\\d{12}$", "required": true},
+    "name": {"type": "string", "required": true},
+    "dob": {"type": "string", "format": "DD/MM/YYYY", "required": true},
+    "gender": {"type": "string", "enum": ["MALE", "FEMALE", "OTHER"], "required": true},
+    "address": {"type": "string", "required": false},
+    "vid": {"type": "string", "pattern": "^\\d{16}$", "required": false},
+    "issue_date": {"type": "string", "required": false}
+  },
+  "keywords": ["AADHAAR", "UIDAI", "Government of India", "Unique Identification"]
+}
