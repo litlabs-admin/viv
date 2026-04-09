@@ -1,0 +1,6 @@
+prn
+name_block
+marks_table
+sgpa_line
+seal
+signature

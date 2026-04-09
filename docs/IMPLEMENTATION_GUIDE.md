@@ -23,8 +23,7 @@ Build a local, end-to-end Automated Document Verification System that:
 | **Backend** | Python 3.11+ with FastAPI | Simple, async, auto-generates API docs |
 | **Frontend** | React 18 + TailwindCSS (Vite) | Fast setup, looks professional |
 | **Database** | SQLite via SQLAlchemy | Zero setup, single file DB, no server needed |
-| **OCR** | Tesseract OCR (pytesseract) | Free, local, no API key |
-| **LLM (Vision + Text)** | LM Studio running **LLaVA 1.6 7B** or **MiniCPM-V 2.6** | Free local multimodal model for OCR fallback + report generation |
+| **OCR + Vision** | LM Studio running **LLaVA 1.6 7B** or **MiniCPM-V 2.6** | Free local multimodal model for document text extraction + report generation |
 | **CNN Model** | PyTorch - EfficientNet-B0 (lighter than B4) | Pretrained on ImageNet, fine-tune for forgery |
 | **NLP** | spaCy (en_core_web_sm) | Free, fast, local NER |
 | **Anomaly Detection** | scikit-learn Isolation Forest | Simple, effective |
@@ -65,7 +64,7 @@ BE-PROJECT/
 │   │
 │   ├── modules/                       # Core verification pipeline modules
 │   │   ├── preprocessor.py            # Module 1: Image preprocessing
-│   │   ├── ocr_engine.py              # Module 2: Tesseract OCR + LM Studio fallback
+│   │   ├── ocr_engine.py              # Module 2: LM Studio vision-based OCR
 │   │   ├── classifier.py              # Module 3: Document type classification
 │   │   ├── rule_validator.py          # Module 4: Rule-based validation
 │   │   ├── nlp_checker.py             # Module 5: NLP semantic consistency
@@ -177,13 +176,10 @@ BE-PROJECT/
      sqlalchemy==2.0.35
      pillow==10.4.0
      opencv-python==4.10.0.84
-     pytesseract==0.3.13
      numpy==1.26.4
      pydantic==2.9.0
      ```
    - Install: `pip install -r requirements.txt`
-   - Install Tesseract OCR system package:
-     - macOS: `brew install tesseract`
    - Create React frontend: `npm create vite@latest frontend -- --template react`
    - Install TailwindCSS in frontend: follow Vite + Tailwind docs
 
@@ -226,7 +222,7 @@ BE-PROJECT/
 
 ### PHASE 2: OCR Engine + LM Studio Integration (Days 4-6)
 
-**Goal:** Extract structured text from documents using Tesseract + LM Studio as intelligent fallback.
+**Goal:** Extract structured text from documents using LM Studio's vision model (LLaVA). No Tesseract — LM Studio handles all OCR directly from document images.
 
 #### Prerequisites
 - Download and install LM Studio from https://lmstudio.ai
@@ -235,23 +231,16 @@ BE-PROJECT/
 
 #### Tasks
 
-1. **Tesseract OCR (`backend/modules/ocr_engine.py`)**
-   - `extract_text_tesseract(image)` -> raw text string
-   - `extract_with_confidence(image)` -> list of (text, confidence, bounding_box) tuples
-   - Use `pytesseract.image_to_data()` for word-level confidence scores
-   - Calculate overall confidence as mean of word confidences
-   - Add to requirements: `pytesseract`
-
-2. **LM Studio Vision Fallback**
+1. **LM Studio Vision OCR (`backend/modules/ocr_engine.py`)**
    - Install: `pip install openai` (used as client for LM Studio's OpenAI-compatible API)
-   - When Tesseract confidence < 70%, call LM Studio's vision model
-   - Function: `extract_with_llm(image_path, doc_type)` 
-   - Convert image to base64, send to LM Studio with a prompt like:
+   - `extract_document_data(image_path, doc_type)` -> structured dict of extracted fields
+   - Convert image to base64, send to LM Studio with a structured prompt:
      ```
      You are a document data extractor. Extract all fields from this {doc_type} image.
      Return ONLY valid JSON with these fields: {schema_for_doc_type}
      ```
    - Parse LLM JSON response, validate against expected schema
+   - `extract_raw_text(image_path)` -> raw text string (for classification/NLP use)
    - Code pattern for calling LM Studio:
      ```python
      from openai import OpenAI
@@ -272,23 +261,29 @@ BE-PROJECT/
      extracted = response.choices[0].message.content
      ```
 
+2. **Document Type Classifier (`backend/modules/classifier.py`)**
+   - Use LM Studio vision to classify document type from image
+   - `classify_document(image_path)` -> document type string
+   - Prompt: "What type of Indian document is this? Reply with ONLY one of: sppu_marksheet, aadhaar_card, pan_card, experience_certificate"
+   - Fallback: keyword-based classification from extracted raw text
+
 3. **Document Field Schemas (`backend/templates/`)**
-   - Create JSON schema files for each document type defining expected fields
+   - Already created in Phase 1 — JSON schema files for each document type
    - `sppu_marksheet_template.json`: prn, student_name, semester, subjects[], sgpa, etc.
    - `aadhaar_template.json`: aadhaar_number, name, dob, gender, address
    - `pan_template.json`: pan_number, name, fathers_name, dob
    - `experience_cert_template.json`: employee_name, company_name, dates, etc.
 
-4. **Combined OCR Pipeline**
-   - `extract_document_data(image, doc_type)` -> structured dict
-   - Flow: Tesseract first -> check confidence -> LLM fallback if needed -> validate against schema -> return
+4. **Wire into Verify Endpoint**
+   - Update `POST /api/verify/{id}` to run classification + OCR after preprocessing
+   - Return extracted fields, document type, and confidence in the response
 
 #### Success Metrics (Phase 2)
 - [ ] LM Studio running locally, server accessible at localhost:1234
-- [ ] Tesseract extracts readable text from a clear document scan
 - [ ] LM Studio vision model extracts structured JSON from a document image
-- [ ] Fallback mechanism works: low-confidence Tesseract triggers LLM extraction
+- [ ] Document classifier correctly identifies document type
 - [ ] Extracted data matches expected schema for at least one document type
+- [ ] Verify endpoint returns OCR results alongside preprocessing
 
 ---
 
@@ -630,8 +625,7 @@ BE-PROJECT/
 
 ### System Dependencies (macOS)
 ```bash
-brew install tesseract
-brew install poppler    # for PDF support
+brew install poppler    # for PDF support (optional)
 ```
 
 ### Python Dependencies (complete `requirements.txt`)
@@ -642,7 +636,6 @@ python-multipart==0.0.9
 sqlalchemy==2.0.35
 pillow==10.4.0
 opencv-python==4.10.0.84
-pytesseract==0.3.13
 numpy==1.26.4
 pydantic==2.9.0
 openai==1.50.0
@@ -700,7 +693,7 @@ npm run dev
 |---|---|---|
 | Supabase (PostgreSQL + Auth) | SQLite (no auth) | No server setup needed |
 | EfficientNet-B4 | EfficientNet-B0 | Faster training, smaller model |
-| Google Vision API fallback | LM Studio only | Free, local |
+| Google Vision API fallback | LM Studio only (no Tesseract) | Free, local, more reliable on Indian docs |
 | Docker deployment | Just run locally | No deployment needed |
 | ESRGAN super-resolution | Skip | Overkill for demo |
 | WebSocket real-time updates | Polling every 2s | Much simpler to implement |
