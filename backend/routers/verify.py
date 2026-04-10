@@ -1,20 +1,11 @@
-"""Verify endpoint: triggers the verification pipeline on an uploaded document."""
+"""Verify endpoint: runs the full verification pipeline and persists results."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.schemas import Document
-from modules.preprocessor import preprocess_document, save_preprocessed
-from modules.classifier import classify_document
-from modules.ocr_engine import extract_document_data
-from modules.rule_validator import validate_document
-from modules.cnn_forgery import detect_forgery
-from modules.nlp_checker import check_nlp_consistency
-from modules.anomaly_detector import detect_anomaly
-from modules.score_aggregator import aggregate_scores
-from modules.report_generator import generate_report
-from config import OUTPUT_DIR
+from models.schemas import Document, VerificationResult
+from pipeline import run_verification_pipeline
 
 router = APIRouter(prefix="/api", tags=["verify"])
 
@@ -22,10 +13,11 @@ router = APIRouter(prefix="/api", tags=["verify"])
 @router.post("/verify/{document_id}")
 async def verify_document(document_id: str, db: Session = Depends(get_db)):
     """
-    Start verification pipeline for an uploaded document.
+    Run the full verification pipeline on an uploaded document.
 
-    Phase 2: Preprocessing + Classification + OCR extraction.
-    Other modules return placeholders.
+    Executes all 9 modules (preprocessing, classification, OCR, rules,
+    NLP, CNN forgery, anomaly, aggregation, report) and persists the
+    full result to the VerificationResult table.
     """
     # Fetch document from DB
     document = db.query(Document).filter(Document.id == document_id).first()
@@ -40,167 +32,103 @@ async def verify_document(document_id: str, db: Session = Depends(get_db)):
     db.commit()
 
     try:
-        # --- Module 1: Preprocessing ---
-        preprocessed = preprocess_document(document.file_path)
-        saved_paths = save_preprocessed(preprocessed, str(OUTPUT_DIR), document_id)
+        # Run the full pipeline
+        result = run_verification_pipeline(document_id, document.file_path)
 
-        preprocessing_result = {
-            "status": "success",
-            "output_images": saved_paths,
-            "image_shape": {
-                "height": preprocessed["original"].shape[0],
-                "width": preprocessed["original"].shape[1],
-            },
-        }
-
-        # --- Module 2: Classification ---
-        classification_result = classify_document(document.file_path)
-        doc_type = classification_result.get("doc_type", "unknown")
-
-        # Update document type in DB
+        doc_type = result.get("doc_type", "unknown")
         if doc_type != "unknown":
-            document.doc_type = doc_type
+            document.document_type = doc_type
 
-        # --- Module 3: OCR Extraction ---
-        if doc_type != "unknown":
-            ocr_result = extract_document_data(document.file_path, doc_type)
-        else:
-            ocr_result = {
-                "extracted_fields": None,
-                "raw_response": None,
-                "doc_type": "unknown",
-                "status": "skipped",
-                "error": "Document type could not be determined",
-            }
+        # Extract module scores for DB persistence
+        ocr_confidence = 1.0 if result["ocr"].get("status") == "success" else 0.0
+        rule_score = result["rule_validation"].get("score", 0.0)
+        nlp_score = result["nlp_check"].get("score", 0.0)
+        cnn_prob = result["cnn_forgery"].get("forgery_probability", 0.0)
+        anomaly_score = result["anomaly_detection"].get("anomaly_score", 0.0)
 
-        # --- Module 4: Rule-Based Validation ---
-        extracted_fields = ocr_result.get("extracted_fields")
-        if doc_type != "unknown" and extracted_fields:
-            rule_result = validate_document(doc_type, extracted_fields)
-        else:
-            rule_result = {
-                "score": 0.0,
-                "passed": [],
-                "failed": [],
-                "doc_type": doc_type,
-                "status": "skipped",
-                "error": "No extracted fields to validate" if not extracted_fields else "Unknown document type",
-            }
-
-        # --- Module 5: CNN Forgery Detection ---
-        forgery_result = detect_forgery(document.file_path)
-
-        # --- Module 6: NLP Consistency Check ---
-        if extracted_fields:
-            nlp_result = check_nlp_consistency(extracted_fields, doc_type)
-        else:
-            nlp_result = {
-                "score": 0.0,
-                "findings": [],
-                "status": "skipped",
-                "error": "No extracted fields for NLP check",
-            }
-
-        # --- Module 7: Anomaly Detection ---
-        if extracted_fields:
-            anomaly_result = detect_anomaly(extracted_fields, doc_type)
-        else:
-            anomaly_result = {
-                "anomaly_score": 0.0,
-                "is_anomaly": False,
-                "features": None,
-                "method": "none",
-                "status": "skipped",
-                "error": "No extracted fields for anomaly detection",
-            }
-
-        # --- Module 8: Score Aggregation ---
-        ocr_confidence = 1.0 if ocr_result.get("status") == "success" else 0.0
-        aggregation_result = aggregate_scores(
-            cnn_forgery_probability=forgery_result.get("forgery_probability", 0.0),
-            rule_score=rule_result.get("score", 0.0),
-            nlp_score=nlp_result.get("score", 0.0),
-            anomaly_score=anomaly_result.get("anomaly_score", 0.0),
-            ocr_confidence=ocr_confidence,
-            failed_rules=rule_result.get("failed", []),
-        )
-
-        # --- Module 9: Report Generation ---
-        report_result = generate_report(
+        # Save VerificationResult to DB
+        verification = VerificationResult(
             document_id=document_id,
-            doc_type=doc_type,
-            image_path=document.file_path,
-            preprocessing_result=preprocessing_result,
-            classification_result=classification_result,
-            ocr_result=ocr_result,
-            rule_result=rule_result,
-            nlp_result=nlp_result,
-            forgery_result=forgery_result,
-            anomaly_result=anomaly_result,
-            aggregation_result=aggregation_result,
+            verdict=result.get("verdict"),
+            confidence_score=result.get("final_score"),
+            ocr_confidence=ocr_confidence,
+            rule_validation_score=rule_score,
+            nlp_consistency_score=nlp_score,
+            cnn_forgery_score=cnn_prob,
+            isolation_forest_score=anomaly_score,
+            full_report=result.get("report", {}).get("full_report", {}),
+            extracted_data=result["ocr"].get("extracted_fields"),
+            failed_rules=result["rule_validation"].get("failed", []),
+            forgery_regions=None,
+            annotated_image_path=result.get("report", {}).get("annotated_image_path"),
+            processing_time_ms=result.get("processing_time_ms"),
         )
-
-        # Update document status
+        db.add(verification)
         document.status = "completed"
         db.commit()
 
+        # Return the full result (same shape as before)
         return {
             "document_id": document_id,
             "status": "completed",
-            "verdict": aggregation_result.get("verdict"),
-            "final_score": aggregation_result.get("final_score"),
-            "summary": report_result.get("summary"),
-            "preprocessing": preprocessing_result,
+            "verdict": result.get("verdict"),
+            "final_score": result.get("final_score"),
+            "summary": result.get("summary"),
+            "processing_time_ms": result.get("processing_time_ms"),
+            "preprocessing": {
+                "status": result["preprocessing"].get("status"),
+                "image_shape": result["preprocessing"].get("image_shape"),
+            },
             "classification": {
                 "doc_type": doc_type,
-                "confidence": classification_result.get("confidence", 0),
-                "method": classification_result.get("method", "unknown"),
+                "confidence": result["classification"].get("confidence", 0),
+                "method": result["classification"].get("method", "unknown"),
             },
             "ocr": {
-                "status": ocr_result.get("status"),
-                "extracted_fields": ocr_result.get("extracted_fields"),
-                "error": ocr_result.get("error"),
+                "status": result["ocr"].get("status"),
+                "extracted_fields": result["ocr"].get("extracted_fields"),
+                "error": result["ocr"].get("error"),
             },
             "rule_validation": {
-                "status": rule_result.get("status"),
-                "score": rule_result.get("score"),
-                "passed": rule_result.get("passed"),
-                "failed": rule_result.get("failed"),
-                "error": rule_result.get("error"),
+                "status": result["rule_validation"].get("status"),
+                "score": result["rule_validation"].get("score"),
+                "passed": result["rule_validation"].get("passed"),
+                "failed": result["rule_validation"].get("failed"),
+                "error": result["rule_validation"].get("error"),
             },
             "cnn_forgery": {
-                "status": forgery_result.get("status"),
-                "forgery_detected": forgery_result.get("forgery_detected"),
-                "forgery_probability": forgery_result.get("forgery_probability"),
-                "method": forgery_result.get("method"),
-                "ela_image_base64": forgery_result.get("ela_image_base64"),
-                "gradcam_heatmap_base64": forgery_result.get("gradcam_heatmap_base64"),
-                "ela_stats": forgery_result.get("ela_stats"),
-                "error": forgery_result.get("error"),
+                "status": result["cnn_forgery"].get("status"),
+                "forgery_detected": result["cnn_forgery"].get("forgery_detected"),
+                "forgery_probability": result["cnn_forgery"].get("forgery_probability"),
+                "method": result["cnn_forgery"].get("method"),
+                "ela_image_base64": result["cnn_forgery"].get("ela_image_base64"),
+                "gradcam_heatmap_base64": result["cnn_forgery"].get("gradcam_heatmap_base64"),
+                "ela_stats": result["cnn_forgery"].get("ela_stats"),
+                "error": result["cnn_forgery"].get("error"),
             },
             "nlp_check": {
-                "status": nlp_result.get("status"),
-                "score": nlp_result.get("score"),
-                "findings": nlp_result.get("findings"),
-                "error": nlp_result.get("error"),
+                "status": result["nlp_check"].get("status"),
+                "score": result["nlp_check"].get("score"),
+                "findings": result["nlp_check"].get("findings"),
+                "error": result["nlp_check"].get("error"),
             },
             "anomaly_detection": {
-                "status": anomaly_result.get("status"),
-                "anomaly_score": anomaly_result.get("anomaly_score"),
-                "is_anomaly": anomaly_result.get("is_anomaly"),
-                "method": anomaly_result.get("method"),
-                "error": anomaly_result.get("error"),
+                "status": result["anomaly_detection"].get("status"),
+                "anomaly_score": result["anomaly_detection"].get("anomaly_score"),
+                "is_anomaly": result["anomaly_detection"].get("is_anomaly"),
+                "method": result["anomaly_detection"].get("method"),
+                "error": result["anomaly_detection"].get("error"),
             },
             "score_aggregation": {
-                "final_score": aggregation_result.get("final_score"),
-                "verdict": aggregation_result.get("verdict"),
-                "verdict_color": aggregation_result.get("verdict_color"),
-                "module_scores": aggregation_result.get("module_scores"),
-                "override_reason": aggregation_result.get("override_reason"),
+                "final_score": result["score_aggregation"].get("final_score"),
+                "verdict": result["score_aggregation"].get("verdict"),
+                "verdict_color": result["score_aggregation"].get("verdict_color"),
+                "module_scores": result["score_aggregation"].get("module_scores"),
+                "override_reason": result["score_aggregation"].get("override_reason"),
             },
             "report": {
-                "summary": report_result.get("summary"),
-                "annotated_image_path": report_result.get("annotated_image_path"),
+                "summary": result["report"].get("summary"),
+                "annotated_image_path": result["report"].get("annotated_image_path"),
             },
         }
 

@@ -198,6 +198,8 @@ def generate_report(
             "forgery_detected": forgery_result.get("forgery_detected", False),
             "forgery_probability": forgery_result.get("forgery_probability", 0.0),
             "method": forgery_result.get("method"),
+            "ela_image_base64": forgery_result.get("ela_image_base64"),
+            "gradcam_heatmap_base64": forgery_result.get("gradcam_heatmap_base64"),
         },
         "anomaly_detection": {
             "status": anomaly_result.get("status"),

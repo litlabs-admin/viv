@@ -90,7 +90,9 @@ class TestVerifyEndpoint:
         data = verify_resp.json()
         assert data["status"] == "completed"
         assert data["preprocessing"]["status"] == "success"
-        assert "output_images" in data["preprocessing"]
+        assert "image_shape" in data["preprocessing"]
+        assert "verdict" in data
+        assert "final_score" in data
 
     def test_verify_nonexistent_doc(self):
         response = client.post("/api/verify/nonexistent-id")
